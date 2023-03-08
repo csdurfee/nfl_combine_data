@@ -25,14 +25,25 @@ def get_data():
             df = pd.read_html(r.content)[0]
             time.sleep(6 * random.random()) # don't crawl too hard
         else:
-            df = pd.read_html(target_file)
+            df = pd.read_html(target_file)[0]
 
         df['Year'] = year
         dataframes.append(df)
     return dataframes
 
 def process_data(dataframes):
-    concatenated = pd.concat(dataframes)
+    EXTRACT_DRAFTED = r"(?P<tm>.+) / (?P<rnd>\d+).+ / (?P<pick>\d+).+ / (?P<yr>.+)"
+
+    all_data = pd.concat(dataframes, ignore_index=True)
+    extracted = all_data["Drafted (tm/rnd/yr)"].str.extract(EXTRACT_DRAFTED)
+
+    ## I think there are some years where teams lose their picks, so the draft number may not be right
+    ## not all drafted players go to the combine, so it would be non-trivial to figure out the real number.
+    ## using floats here because there are NaN values for players not drafted.
+
+    extracted['DraftNumber'] = extracted.pick.astype(float) + (32 * (extracted.rnd.astype(float) - 1))
+
+    return all_data.join(extracted)
 
 
 if __name__ == '__main__':
