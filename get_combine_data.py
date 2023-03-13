@@ -2,6 +2,7 @@
 
 import requests
 import pandas as pd
+import numpy as np
 import time
 import random
 import os
@@ -48,6 +49,8 @@ def process_data(dataframes):
 
     all_data = all_data.drop(DROP_COLS, axis=1)
 
+    all_data = fix_positions(all_data)
+
     extracted = all_data["Drafted (tm/rnd/yr)"].str.extract(EXTRACT_DRAFTED)
 
     ## I think there are some years where teams lose their picks, so the draft number may not be right
@@ -60,6 +63,54 @@ def process_data(dataframes):
 
     return all_data.join(extracted)
 
+def fix_positions(all_data):
+    all_data.loc[all_data.Pos == "DB", "Pos"] = "S" # curse you, Minkah Fitzpatrick
+    all_data.loc[all_data.Pos == "LS", "Pos"] = "C" # long snappers
+
+    return all_data
+
+def get_positions(all_data):
+    all_positions = list(set(all_data.Pos.values))
+    return all_positions
+
+
+def get_quantiles(all_data):
+    """
+    Calculates overall quantiles for each player's score
+    Calculates quantiles for current position for each player's score.
+    """
+    quantile_data = pd.DataFrame(all_data.index)
+    ## overall quantiles
+    for metric in COMBINE_METRICS:
+        quantiles = pd.qcut(all_data[metric].rank(method="first"), 100, labels=False)
+        column_label = f"q_{metric}"
+        quantile_data[column_label] = quantiles 
+
+    ## quantiles for each position
+    """
+    all_data.loc[all_data.Pos == "OLB", "foo"] = pd.qcut(all_data[all_data.Pos == "OLB"] \
+        .Bench.rank(method="first"), 100, labels=False)
+    """
+    for metric in COMBINE_METRICS:
+        col_name = f"pos_d_{metric}"
+        quantile_data[col_name] = np.nan
+        for position in get_positions(all_data):
+            position_players = all_data[all_data.Pos == position]
+
+            pos_with_metric = sum(~position_players[metric].isna())
+
+            # we can't split up into deciles unless there are at least 10 of position + metric combo
+            if pos_with_metric < 10:
+                print(f"on position {position}, can't do metric {metric}")
+            else:
+                deciles_for_pos = pd.qcut(position_players[metric].rank(method="first"), 10, labels=False)
+                # I don't know if this works or not...
+                quantile_data[col_name] = deciles_for_pos
+            
+    # FIXME: some metrics have a high "good" score (bench press), others have a low "good" score (40 yard dash)
+    # the percentiles/deciles should be so that 1 is bad and 10 (or 100) is good for all of them.
+
+    return all_data.join(quantile_data)
 
 if __name__ == '__main__':
     dataframes = get_data()
