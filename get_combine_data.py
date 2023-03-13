@@ -12,7 +12,16 @@ TARGET_DIR = "combine_data/"
 
 NUMERIC_COLS = ['Wt', '40yd', 'Vertical', 'Bench', 'Broad Jump', '3Cone', 'Shuttle']
 
-COMBINE_METRICS = ['40yd', 'Vertical', 'Bench', 'Broad Jump', '3Cone', 'Shuttle']
+## the value indicates how metrics should be sorted by percentile
+## 'DESC' => the lowest score will be a 99 (smaller values are better)
+## 'ASC'  => the highest score will be a 99 (larger values are better)
+COMBINE_METRICS = { '40yd'      : False,  
+                    'Vertical'  : True,  
+                    'Bench'     : True, 
+                    'Broad Jump': True, 
+                    '3Cone'     : False, 
+                    'Shuttle'   : False
+                }
 
 EXTRACT_DRAFTED = r"(?P<tm>.+) / (?P<rnd>\d+).+ / (?P<pick>\d+).+ / (?P<yr>.+)"
 
@@ -81,17 +90,15 @@ def get_quantiles(all_data):
     """
     quantile_data = pd.DataFrame(all_data.index)
     ## overall quantiles
-    for metric in COMBINE_METRICS:
-        quantiles = pd.qcut(all_data[metric].rank(method="first"), 100, labels=False)
+    for metric in COMBINE_METRICS.keys():
+        asc = COMBINE_METRICS[metric]
+        quantiles = pd.qcut(all_data[metric].rank(method="first", ascending=asc), 100, labels=False)
         column_label = f"q_{metric}"
-        quantile_data[column_label] = quantiles 
+        quantile_data[column_label] = quantiles
 
     ## quantiles for each position
-    """
-    all_data.loc[all_data.Pos == "OLB", "foo"] = pd.qcut(all_data[all_data.Pos == "OLB"] \
-        .Bench.rank(method="first"), 100, labels=False)
-    """
-    for metric in COMBINE_METRICS:
+
+    for metric in COMBINE_METRICS.keys():
         col_name = f"pos_d_{metric}"
         quantile_data[col_name] = np.nan
         for position in get_positions(all_data):
@@ -103,7 +110,8 @@ def get_quantiles(all_data):
             if pos_with_metric < 10:
                 print(f"on position {position}, can't do metric {metric}")
             else:
-                deciles_for_pos = pd.qcut(position_players[metric].rank(method="first"), 10, labels=False)
+                asc = COMBINE_METRICS[metric]
+                deciles_for_pos = pd.qcut(position_players[metric].rank(method="first", ascending=asc), 10, labels=False)
                 # I don't know if this works or not...
                 quantile_data[col_name] = deciles_for_pos
             
