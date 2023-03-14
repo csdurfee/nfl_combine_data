@@ -50,7 +50,6 @@ def get_data():
 def process_data(dataframes):
     all_data = pd.concat(dataframes, ignore_index=True)
 
-
     ## these are header rows, not actual players.
     all_data = all_data.drop(all_data[all_data.Wt == "Wt"].index, axis=0)
 
@@ -65,7 +64,6 @@ def process_data(dataframes):
     ## I think there are some years where teams lose their picks, so the draft number may not be right
     ## not all drafted players go to the combine, so it would be non-trivial to figure out the real number.
     ## using floats here because there are NaN values for players not drafted.
-
     extracted['DraftNumber'] = extracted.pick.astype(float) + (32 * (extracted.rnd.astype(float) - 1))
 
     ## TODO? Height?
@@ -88,7 +86,7 @@ def get_quantiles(all_data):
     Calculates overall quantiles for each player's score
     Calculates quantiles for current position for each player's score.
     """
-    quantile_data = pd.DataFrame(all_data.index)
+    quantile_data = pd.DataFrame(index=all_data.index)
     ## overall quantiles
     for metric in COMBINE_METRICS.keys():
         asc = COMBINE_METRICS[metric]
@@ -101,7 +99,9 @@ def get_quantiles(all_data):
     for metric in COMBINE_METRICS.keys():
         col_name = f"pos_d_{metric}"
         quantile_data[col_name] = np.nan
-        for position in get_positions(all_data):
+        positions = get_positions(all_data)
+        print(f"positions are {positions}")
+        for position in positions:
             position_players = all_data[all_data.Pos == position]
 
             pos_with_metric = sum(~position_players[metric].isna())
@@ -113,7 +113,7 @@ def get_quantiles(all_data):
                 asc = COMBINE_METRICS[metric]
                 deciles_for_pos = pd.qcut(position_players[metric].rank(method="first", ascending=asc), 10, labels=False)
                 # I don't know if this works or not...
-                quantile_data[col_name] = deciles_for_pos
+                quantile_data.loc[position_players.index, col_name] = deciles_for_pos
             
     # FIXME: some metrics have a high "good" score (bench press), others have a low "good" score (40 yard dash)
     # the percentiles/deciles should be so that 1 is bad and 10 (or 100) is good for all of them.
