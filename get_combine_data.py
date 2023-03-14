@@ -13,8 +13,8 @@ TARGET_DIR = "combine_data/"
 NUMERIC_COLS = ['Wt', '40yd', 'Vertical', 'Bench', 'Broad Jump', '3Cone', 'Shuttle']
 
 ## the value indicates how metrics should be sorted by percentile
-## 'DESC' => the lowest score will be a 99 (smaller values are better)
-## 'ASC'  => the highest score will be a 99 (larger values are better)
+## False => the lowest score will be a 99 (smaller values are better)
+## True  => the highest score will be a 99 (larger values are better)
 COMBINE_METRICS = { '40yd'      : False,  
                     'Vertical'  : True,  
                     'Bench'     : True, 
@@ -86,6 +86,9 @@ def get_quantiles(all_data):
     Calculates overall quantiles for each player's score
     Calculates quantiles for current position for each player's score.
     """
+    quantile_columns = []
+    decile_columns = []
+
     quantile_data = pd.DataFrame(index=all_data.index)
     ## overall quantiles
     for metric in COMBINE_METRICS.keys():
@@ -93,14 +96,15 @@ def get_quantiles(all_data):
         quantiles = pd.qcut(all_data[metric].rank(method="first", ascending=asc), 100, labels=False)
         column_label = f"q_{metric}"
         quantile_data[column_label] = quantiles
+        quantile_columns.append(column_label)
 
     ## quantiles for each position
-
     for metric in COMBINE_METRICS.keys():
         col_name = f"pos_d_{metric}"
+        decile_columns.append(col_name)
         quantile_data[col_name] = np.nan
         positions = get_positions(all_data)
-        print(f"positions are {positions}")
+        #print(f"positions are {positions}")
         for position in positions:
             position_players = all_data[all_data.Pos == position]
 
@@ -112,19 +116,28 @@ def get_quantiles(all_data):
             else:
                 asc = COMBINE_METRICS[metric]
                 deciles_for_pos = pd.qcut(position_players[metric].rank(method="first", ascending=asc), 10, labels=False)
-                # I don't know if this works or not...
                 quantile_data.loc[position_players.index, col_name] = deciles_for_pos
-            
-    # FIXME: some metrics have a high "good" score (bench press), others have a low "good" score (40 yard dash)
-    # the percentiles/deciles should be so that 1 is bad and 10 (or 100) is good for all of them.
 
-    return all_data.join(quantile_data)
+    # calculate mean decile score to get a 0-9 score for all-around athleticism
+    # this is flawed:
+    # 1) some events are more important for some positions (eg. CB and speed, OL and strength)
+    # 2) not every athlete does every event and might actually skip events they think they'll do bad at
+    # 3) I didn't actually show the events are all normally distributed, so adding them up isn't necessarily
+    #    going to give us another normal distribution
+    quantile_data['pos_mean'] = all_data[decile_columns].mean(axis=1)
+
+    return quantile_data
+
+def get_all_data():
+    dataframes = get_data()
+    processed_data = process_data(dataframes)
+    q_data = get_quantiles(processed_data)
+    all_data = processed_data.join(q_data)
+
+    return all_data
 
 if __name__ == '__main__':
-    dataframes = get_data()
-
-    processed_data = process_data(dataframes)
-
+    all_data = get_all_data()
 
     
 
