@@ -7,14 +7,16 @@ import time
 import random
 import os
 
+from scipy.sparse import csr_matrix
+
 YEAR_RANGE = range(2000, 2021)
 TARGET_DIR = "combine_data/"
 
 NUMERIC_COLS = ['Wt', '40yd', 'Vertical', 'Bench', 'Broad Jump', '3Cone', 'Shuttle']
 
-## the value indicates how metrics should be sorted by percentile
-## False => the lowest score will be a 99 (smaller values are better)
-## True  => the highest score will be a 99 (larger values are better)
+## the value indicates whether metric should be sorted ascending or descending
+## False => the lowest score will be a 99 (smaller values are better, eg sprint time)
+## True  => the highest score will be a 99 (larger values are better, eg vertical jump)
 COMBINE_METRICS = { '40yd'      : False,  
                     'Vertical'  : True,  
                     'Bench'     : True, 
@@ -27,7 +29,7 @@ EXTRACT_DRAFTED = r"(?P<tm>.+) / (?P<rnd>\d+).+ / (?P<pick>\d+).+ / (?P<yr>.+)"
 
 DROP_COLS = ['College'] # this is a link to college stats.
 
-def get_data():
+def get_base_data():
     dataframes = []
     
     for year in YEAR_RANGE:
@@ -66,7 +68,7 @@ def process_data(dataframes):
     ## using floats here because there are NaN values for players not drafted.
     extracted['DraftNumber'] = extracted.pick.astype(float) + (32 * (extracted.rnd.astype(float) - 1))
 
-    ## TODO? Height?
+    ## TODO? Height in inches?
 
     return all_data.join(extracted)
 
@@ -76,12 +78,27 @@ def fix_positions(all_data):
 
     return all_data
 
-def get_positions(all_data):
-    all_positions = list(set(all_data.Pos.values))
+def get_positions(all_data, pos_key='Pos'):
+    all_positions = list(set(all_data[pos_key].values))
     return all_positions
 
+def add_general_positions(data):
+    POSITION_MAP = {
+        'ILB': 'LB',
+        'OLB': 'LB',
+        'DE': 'DL',
+        'DT': 'DL',
+        'OG': 'OL',
+        'C': 'OL',
+        'P': 'ST',
+        'K': 'ST',
+        'EDGE': 'LB' # if I die unexpectedly, it's because some football nerd got mad at this
+    }
+    data['general_position'] = data.Pos.replace(POSITION_MAP)
+    return data
 
-def get_quantiles(all_data):
+
+def get_quantiles(all_data, position_key='Pos'):
     """
     Calculates overall quantiles for each player's score
     Calculates quantiles for current position for each player's score.
@@ -103,10 +120,10 @@ def get_quantiles(all_data):
         col_name = f"pos_d_{metric}"
         decile_columns.append(col_name)
         quantile_data[col_name] = np.nan
-        positions = get_positions(all_data)
+        positions = get_positions(all_data, position_key)
         #print(f"positions are {positions}")
         for position in positions:
-            position_players = all_data[all_data.Pos == position]
+            position_players = all_data[all_data[position_key] == position]
 
             pos_with_metric = sum(~position_players[metric].isna())
 
@@ -124,21 +141,64 @@ def get_quantiles(all_data):
     # 2) not every athlete does every event and might actually skip events they think they'll do bad at
     # 3) I didn't actually show the events are all normally distributed, so adding them up isn't necessarily
     #    going to give us another normal distribution
-    quantile_data['pos_mean'] = all_data[decile_columns].mean(axis=1)
+    quantile_data['composite_score'] = quantile_data[decile_columns].mean(axis=1)
 
     return quantile_data
 
-def get_all_data():
-    dataframes = get_data()
+def get_data(drafted_only=True, position_key='Pos'):
+    dataframes = get_base_data()
     processed_data = process_data(dataframes)
-    q_data = get_quantiles(processed_data)
-    all_data = processed_data.join(q_data)
+    processed_data = add_general_positions(processed_data)
+    if drafted_only:
+        players_to_analyze = processed_data[~processed_data.DraftNumber.isna()]
+    else:
+        players_to_analyze = processed_data
+
+    ## if drafted_only, quantiles will be calculated from just drafted players.
+    q_data = get_quantiles(players_to_analyze, position_key)
+    all_data = players_to_analyze.join(q_data)
 
     return all_data
 
-if __name__ == '__main__':
-    all_data = get_all_data()
+def top_players_at_position(all_data, n_players=50):
+    """
+    This is for the PCA analysis plot.
+    """
+    SKIP_POSITIONS = ["FB", "ST"]
+    player_ids = []
+    sample = all_data.groupby(by="general_position").composite_score.nlargest(n_players)
+    for row in sample.items():
+        if row[0][0] not in SKIP_POSITIONS:
+            player_ids.append(row[0][1])
+    return all_data.loc[player_ids]
 
+def most_corr_with_draft_pos(all_data):
+    """
+    For each position in all_data, return a sorted Series of most->least important exercises
+    """
+    corr_with = {}
+    abs_corrs = all_data.groupby(by="general_position").corr()["DraftNumber"].abs()
+    for (idx, value) in abs_corrs.items():
+        if idx[0] not in corr_with:
+            corr_with[idx[0]] = {}
+        if idx[1].startswith("pos_d"):
+            corr_with[idx[0]][idx[1]] = value
+    
+    corr_series = {}
+    for (idx, value) in corr_with:
+        corr_series[idx] = pd.Series(value).sort_values(ascending=False)
+    return corr_with
+
+def get_norm_data(all_data):
+    quant_cols = [x for x in all_data.columns if x.startswith("q_")]
+    X = all_data[quant_cols]
+    X_norm = X.fillna(49.5) - 49.5 # note: percentiles go from 0..99
+    return X_norm
+
+def get_sparse_data(all_data):
+    X_norm = get_norm_data(all_data)
+    X_sparse = csr_matrix(X_norm)
+    return X_sparse
     
 
 
