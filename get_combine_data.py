@@ -185,9 +185,27 @@ def most_corr_with_draft_pos(all_data):
             corr_with[idx[0]][idx[1]] = value
     
     corr_series = {}
-    for (idx, value) in corr_with:
-        corr_series[idx] = pd.Series(value).sort_values(ascending=False)
-    return corr_with
+    for (idx, value) in corr_with.items():
+        position_series = pd.Series(value)
+        with_rank = pd.DataFrame({"value": position_series, "rank": position_series.rank(ascending=False)}).sort_values("rank")
+        corr_series[idx] = with_rank
+    return corr_series
+
+def quantiles_as_eav(all_data, position='all'):
+    # filter data to just this posision
+    if position == 'all':
+        filtered_data = all_data
+    else:
+        filtered_data = all_data[all_data.Pos == position]
+    quantile_cols = list(filtered_data.columns[filtered_data.columns.str.startswith("q_")])
+    quantile_cols.append("Pos")
+    quantile_data = filtered_data.loc[:, quantile_cols]
+    #fool = quantile_data.reset_index(drop=True).unstack().reset_index(name='value').drop("level_1", axis=1).dropna()
+    
+    # this works correctly (I verified same data) but is a mess
+    mess = quantile_data.pivot(columns="Pos").unstack().reset_index().dropna()
+    eav_format = mess.drop("level_2", axis=1).rename({0: "result", "Pos": "position", "level_0": "event"}, axis=1)
+    return eav_format
 
 def get_norm_data(all_data):
     quant_cols = [x for x in all_data.columns if x.startswith("q_")]
