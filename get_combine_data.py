@@ -29,6 +29,8 @@ EXTRACT_DRAFTED = r"(?P<tm>.+) / (?P<rnd>\d+).+ / (?P<pick>\d+).+ / (?P<yr>.+)"
 
 DROP_COLS = ['College'] # this is a link to college stats.
 
+SKIP_POSITIONS = ["ST"] # these are sparse, generally not interesting
+
 def get_base_data():
     dataframes = []
     
@@ -164,7 +166,6 @@ def top_players_at_position(all_data, n_players=50):
     """
     This is for the PCA analysis plot.
     """
-    SKIP_POSITIONS = ["FB", "ST"]
     player_ids = []
     sample = all_data.groupby(by="general_position").composite_score.nlargest(n_players)
     for row in sample.items():
@@ -172,24 +173,51 @@ def top_players_at_position(all_data, n_players=50):
             player_ids.append(row[0][1])
     return all_data.loc[player_ids]
 
-def most_corr_with_draft_pos(all_data):
+def most_corr_with_draft_pos(all_data, flat_rows=True):
     """
     For each position in all_data, return a sorted Series of most->least important exercises
     """
     corr_with = {}
     abs_corrs = all_data.groupby(by="general_position").corr()["DraftNumber"].abs()
     for (idx, value) in abs_corrs.items():
-        if idx[0] not in corr_with:
-            corr_with[idx[0]] = {}
-        if idx[1].startswith("pos_d"):
-            corr_with[idx[0]][idx[1]] = value
+        if idx[0] not in SKIP_POSITIONS:
+            if idx[0] not in corr_with:
+                corr_with[idx[0]] = {}
+            if idx[1].startswith("pos_d"):
+                corr_with[idx[0]][idx[1]] = value
     
     corr_series = {}
     for (idx, value) in corr_with.items():
-        position_series = pd.Series(value)
+        position_series = pd.Series(value).fillna(0)
         with_rank = pd.DataFrame({"value": position_series, "rank": position_series.rank(ascending=False)}).sort_values("rank")
         corr_series[idx] = with_rank
-    return corr_series
+    ## now turn these into a flat list (I could probably make the above work with the right altair knowledge, but this is faster)
+    if not flat_rows:
+        return corr_series
+    else:
+        return_rows = []
+        for (position, dataframe) in corr_series.items():
+            for row in dataframe.iterrows():
+                # position, exercise name, rank, value
+                this_row = [position, unmunge_exercise_name(row[0]), int(row[1]["rank"]), row[1]["value"]]
+                return_rows.append(this_row)
+        return_df = pd.DataFrame(return_rows, columns=["Position", "Event", "Rank", "Importance"])
+
+        return return_df
+
+def unmunge_exercise_name(colname):
+    name_map = {
+        "pos_d_40yd": "40 Yard Dash",
+        "pos_d_Broad Jump": "Broad Jump",
+        'pos_d_Vertical': "Vertical Leap",
+        'pos_d_Shuttle': "Shuttle", # TODO: Fix description
+        'pos_d_3Cone': "3 Cone Drill",
+        'pos_d_Bench': "Bench Press"
+    }
+    if colname in name_map:
+        return name_map[colname]
+    else:
+        return colname
 
 def quantiles_as_eav(all_data, position='all'):
     # filter data to just this posision
