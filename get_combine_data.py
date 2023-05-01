@@ -25,30 +25,75 @@ COMBINE_METRICS = { '40yd'      : False,
                     'Shuttle'   : False
                 }
 
+GENERAL_POSITION_MAP = {
+        'ILB': 'LB',
+        'OLB': 'LB',
+        'DE': 'DL',
+        'DT': 'DL',
+        'OG': 'OL',
+        'C': 'OL',
+        'P': 'ST',
+        'K': 'ST',
+        'EDGE': 'LB', # if something happens to me, it's because some football nerd got mad at this
+        'OT': 'OL'
+    }
+
+POSITION_NAME_MAP = {
+    "CB": "Cornerback",
+    "DL": "Defensive Line",
+    "FB": "Fullback",
+    "LB": "Linebacker",
+    "OL": "Offensive Line",
+    "QB": "Quarterback",
+    "RB": "Running Back",
+    "S": "Safety",
+    "TE": "Tight End",
+    "WR": "Wide Receiver"
+
+}
+DECILE_NAME_MAP = {
+    "pos_d_40yd": "40 Yard Dash",
+    "pos_d_Broad Jump": "Broad Jump",
+    'pos_d_Vertical': "Vertical Leap",
+    'pos_d_Shuttle': "Shuttle", # TODO: Fix description
+    'pos_d_3Cone': "3 Cone Drill",
+    'pos_d_Bench': "Bench Press"
+}
+
+QUANTILE_NAME_MAP = {
+    "q_40yd": "40 Yard Dash",
+    "q_Vertical": "Vertical Leap",
+    "q_Broad Jump": "Broad Jump",
+    "q_Bench": "Bench Press",
+    "q_Shuttle": "Shuttle",
+    "q_3Cone": "3 Cone Drill"
+}
+
 EXTRACT_DRAFTED = r"(?P<tm>.+) / (?P<rnd>\d+).+ / (?P<pick>\d+).+ / (?P<yr>.+)"
 
 DROP_COLS = ['College'] # this is a link to college stats.
 
 SKIP_POSITIONS = ["ST"] # these are sparse, generally not interesting
 
+
 def get_base_data():
     dataframes = []
-    
     for year in YEAR_RANGE:
-        target_file = f"{TARGET_DIR}{year}-combine.htm"
+        target_file = f"{TARGET_DIR}{year}-combine.json"
         if not os.path.exists(target_file):
             url = f"https://www.pro-football-reference.com/draft/{year}-combine.htm"
             r = requests.get(url)
 
-            with open(target_file, "w") as f:
-                f.write(str(r.content))
             df = pd.read_html(r.content)[0]
+            with open(target_file, "w") as f:
+                f.write(df.to_json())
             time.sleep(6 * random.random()) # don't crawl too hard
         else:
-            df = pd.read_html(target_file)[0]
+            df = pd.read_json(target_file)
 
         df['CombineYear'] = year
         dataframes.append(df)
+    ## TODO: here. should rewrite this so it serializes the dataframe for next time.
     return dataframes
 
 def process_data(dataframes):
@@ -70,14 +115,11 @@ def process_data(dataframes):
     ## using floats here because there are NaN values for players not drafted.
     extracted['DraftNumber'] = extracted.pick.astype(float) + (32 * (extracted.rnd.astype(float) - 1))
 
-    ## TODO? Height in inches?
-
     return all_data.join(extracted)
 
 def fix_positions(all_data):
     all_data.loc[all_data.Pos == "DB", "Pos"] = "S" # curse you, Minkah Fitzpatrick
     all_data.loc[all_data.Pos == "LS", "Pos"] = "C" # long snappers
-
     return all_data
 
 def get_positions(all_data, pos_key='Pos'):
@@ -85,18 +127,7 @@ def get_positions(all_data, pos_key='Pos'):
     return all_positions
 
 def add_general_positions(data):
-    POSITION_MAP = {
-        'ILB': 'LB',
-        'OLB': 'LB',
-        'DE': 'DL',
-        'DT': 'DL',
-        'OG': 'OL',
-        'C': 'OL',
-        'P': 'ST',
-        'K': 'ST',
-        'EDGE': 'LB' # if I die unexpectedly, it's because some football nerd got mad at this
-    }
-    data['general_position'] = data.Pos.replace(POSITION_MAP)
+    data['general_position'] = data.Pos.replace(GENERAL_POSITION_MAP)
     return data
 
 
@@ -131,7 +162,8 @@ def get_quantiles(all_data, position_key='Pos'):
 
             # we can't split up into deciles unless there are at least 10 of position + metric combo
             if pos_with_metric < 10:
-                print(f"on position {position}, can't do metric {metric}")
+                #print(f"on position {position}, can't do metric {metric}")
+                pass
             else:
                 asc = COMBINE_METRICS[metric]
                 deciles_for_pos = pd.qcut(position_players[metric].rank(method="first", ascending=asc), 10, labels=False)
@@ -205,34 +237,39 @@ def most_corr_with_draft_pos(all_data, flat_rows=True):
 
         return return_df
 
+
+
 def unmunge_exercise_name(colname):
-    name_map = {
-        "pos_d_40yd": "40 Yard Dash",
-        "pos_d_Broad Jump": "Broad Jump",
-        'pos_d_Vertical': "Vertical Leap",
-        'pos_d_Shuttle': "Shuttle", # TODO: Fix description
-        'pos_d_3Cone': "3 Cone Drill",
-        'pos_d_Bench': "Bench Press"
-    }
-    if colname in name_map:
-        return name_map[colname]
+    if colname in DECILE_NAME_MAP:
+        return DECILE_NAME_MAP[colname]
     else:
         return colname
 
-def quantiles_as_eav(all_data, position='all'):
+def quantiles_as_eav(all_data, position='all', position_key='Pos'):
     # filter data to just this posision
     if position == 'all':
         filtered_data = all_data
     else:
-        filtered_data = all_data[all_data.Pos == position]
+        filtered_data = all_data[all_data[position_key] == position]
+    # remove positions that don't have enough data to be interesting.
+    filtered_data = filtered_data[~all_data[position_key].isin(SKIP_POSITIONS)]
+
     quantile_cols = list(filtered_data.columns[filtered_data.columns.str.startswith("q_")])
-    quantile_cols.append("Pos")
+    quantile_cols.append(position_key)
     quantile_data = filtered_data.loc[:, quantile_cols]
-    #fool = quantile_data.reset_index(drop=True).unstack().reset_index(name='value').drop("level_1", axis=1).dropna()
+
+    # rename quantile columns
+    # why is this here?
+    #quantile_data = quantile_data.rename(NAME_MAP, axis=1)
     
     # this works correctly (I verified same data) but is a mess
-    mess = quantile_data.pivot(columns="Pos").unstack().reset_index().dropna()
-    eav_format = mess.drop("level_2", axis=1).rename({0: "result", "Pos": "position", "level_0": "event"}, axis=1)
+    mess = quantile_data.pivot(columns=position_key).unstack().reset_index().dropna()
+    eav_format = mess.drop("level_2", axis=1).rename({0: "result", position_key: "position", "level_0": "event"}, axis=1)
+
+    # now swap in full names for exercises and positions.
+    eav_format.event = eav_format.event.replace(to_replace=QUANTILE_NAME_MAP)
+
+    eav_format.position = eav_format.position.replace(to_replace=POSITION_NAME_MAP)
     return eav_format
 
 def get_norm_data(all_data):
@@ -246,5 +283,20 @@ def get_sparse_data(all_data):
     X_sparse = csr_matrix(X_norm)
     return X_sparse
     
+
+def get_pca_coords(general_pos_data=None):
+    from sklearn.decomposition import TruncatedSVD
+    if not general_pos_data:
+        general_pos_data = get_data(True, 'general_position')
+
+    X_norm = get_norm_data(general_pos_data)
+
+    X_sparse = csr_matrix(X_norm)
+
+    svd = TruncatedSVD(n_components=2)
+    svd.fit(X_sparse)
+
+    transformed = svd.transform(X_sparse)
+    return transformed # x,y coordinates for all rows
 
 
