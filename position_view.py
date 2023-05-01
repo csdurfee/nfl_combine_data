@@ -2,7 +2,7 @@ import altair as alt
 import get_combine_data
 
 
-def relative_peformance(all_data):
+def relative_performance(all_data):
     step = 40
     overlap = 0
 
@@ -50,8 +50,7 @@ def relative_peformance(all_data):
         ),
         alt.Row('event:N', title=None, header=alt.Header(labelAngle=0, labelAlign='left')),
         tooltip=alt.Tooltip(['mean_value:Q'], format=".2", title='mean percentile')
-    )
-    c.properties(
+    ).properties(
         title='Percentile performance vs. all drafted players',
         bounds='flush'
     ).configure_view(
