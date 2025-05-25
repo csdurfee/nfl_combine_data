@@ -9,7 +9,7 @@ import os
 
 from scipy.sparse import csr_matrix
 
-YEAR_RANGE = range(2000, 2021)
+YEAR_RANGE = range(2000, 2026)
 TARGET_DIR = "combine_data/"
 
 NUMERIC_COLS = ['Wt', '40yd', 'Vertical', 'Bench', 'Broad Jump', '3Cone', 'Shuttle']
@@ -32,10 +32,14 @@ GENERAL_POSITION_MAP = {
         'DT': 'DL',
         'OG': 'OL',
         'C': 'OL',
+        'G': 'OL',
         'P': 'ST',
         'K': 'ST',
-        'EDGE': 'LB', # if something happens to me, it's because some football nerd got mad at this
-        'OT': 'OL'
+        #'EDGE': 'LB', # if something happens to me, it's because some football nerd got mad at this
+        'FB': 'RB',     # ...or this one
+        'OT': 'OL',
+        'SAF': 'S',
+        'CB/WR': 'CB', # Travis Hunter LOL
     }
 
 POSITION_NAME_MAP = {
@@ -210,7 +214,7 @@ def most_corr_with_draft_pos(all_data, flat_rows=True):
     For each position in all_data, return a sorted Series of most->least important exercises
     """
     corr_with = {}
-    abs_corrs = all_data.groupby(by="general_position").corr()["DraftNumber"].abs()
+    abs_corrs = all_data.groupby(by="general_position").corr(numeric_only=True)["DraftNumber"].abs()
     for (idx, value) in abs_corrs.items():
         if idx[0] not in SKIP_POSITIONS:
             if idx[0] not in corr_with:

@@ -12,19 +12,22 @@ def relative_performance(all_data):
 
     eav = get_combine_data.quantiles_as_eav(all_data, position_key='general_position')
 
-    len(eav.dropna())
+    #len(eav.dropna())
 
     DROPDOWN_POSITIONS = list(eav.position.unique())
 
-    input_dropdown = alt.binding_select(options=DROPDOWN_POSITIONS, name='position')
+#    input_dropdown = alt.binding_select(options=DROPDOWN_POSITIONS, name='position')
 
-    position_selection = alt.selection_single(fields=['position'], bind=input_dropdown, init={"position": "Running Back"})
+    position_selection = alt.selection_point(fields=['position'],
+                                             name='position',
+                                              bind={'position': alt.binding_select(options=DROPDOWN_POSITIONS, name='position')}, 
+                                              value= "Running Back")
 
     c = alt.Chart(eav, height=step
-    ).add_selection(
-        position_selection
+    ).add_params(
+       position_selection
     ).transform_filter(
-        position_selection
+       position_selection
     ).transform_joinaggregate(
         mean_value='mean(result)', groupby=['event']
     ).transform_bin(

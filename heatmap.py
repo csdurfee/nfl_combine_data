@@ -1,7 +1,7 @@
 import get_combine_data
 import altair as alt
 
-def get_heatmap(draft_pos_corr):
+def get_heatmap(draft_pos_corr, extra_title = ""):
     chart = alt.Chart(draft_pos_corr)
 
     scale = alt.Scale(scheme='redyellowblue', reverse=True)
@@ -21,7 +21,7 @@ def get_heatmap(draft_pos_corr):
     chart = chart.properties(
         width=600, height=600
     ).properties(
-        title="Influence of combine results on draft position (r^2)"
+        title="Correlation between combine results and draft position (r^2)" + extra_title
     )
 
     return chart + text
